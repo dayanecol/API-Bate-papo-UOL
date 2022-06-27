@@ -24,13 +24,22 @@ promise
         console.log("Erro ao conectar ao banco de dados!");
 });
 
-app.get("/participants",(req,res)=>{});
+app.get("/participants", async (req,res)=>{
+    try {
+        const participants = await db.collection("participants").find().toArray();
+        res.send(participants);
+        console.log(participants);
+
+    } catch (error) {
+        console.log("Erro ao obter os paticipantes do banco de dados!");
+    }
+});
 app.post("/participants",async(req,res)=>{
     const user = req.body;
     const userSchema = joi.object({
         name: joi.string().required()
     });
-    const validation = userSchema.validate(user, { abortEarly: true });
+    const validation = userSchema.validate(user);
 
     if (validation.error) {
         res.sendStatus(422);
@@ -38,12 +47,13 @@ app.post("/participants",async(req,res)=>{
     }
 
     try {
-        if(await db.collection("participants").findOne({name:user.name})){
+        const currentUser= await db.collection("participants").findOne({name:user.name});
+        if(currentUser){
             res.sendStatus(409);
             return; 
         }
-        await db.collection("participants").insertOne({name: user.name, lastStatus: Date.now()})
-        await db.collection("messages").insertOne({from: user.name, to: 'Todos', text: 'entra na sala...', type: 'status', time: dayjs.format('HH:MM:SS')});
+        await db.collection("participants").insertOne({name: user.name, lastStatus: Date.now()});
+        // await db.collection("messages").insertOne({from: user.name, to: 'Todos', text: 'entra na sala...', type: 'status', time: dayjs.format('HH:MM:SS')});
         res.sendStatus(201);
     } catch (error) {
         console.log("Erro ao validar participante!");
