@@ -5,7 +5,6 @@ import { MongoClient } from "mongodb";
 import joi from "joi";
 import dayjs from "dayjs";
 
-
 const app = express();
 
 app.use(cors());
@@ -33,12 +32,13 @@ app.get("/participants", async (req,res)=>{
         console.log("Erro ao obter os paticipantes do banco de dados!");
     }
 });
+
 app.post("/participants",async(req,res)=>{
-    const user = req.body;
-    const userSchema = joi.object({
+    const participant = req.body;
+    const participantSchema = joi.object({
         name: joi.string().required()
     });
-    const validation = userSchema.validate(user);
+    const validation = participantSchema.validate(participant);
 
     if (validation.error) {
         res.sendStatus(422);
@@ -46,13 +46,19 @@ app.post("/participants",async(req,res)=>{
     }
 
     try {
-        const currentUser= await db.collection("participants").findOne({name:user.name});
+        const currentUser= await db.collection("participants").findOne({name: participant.name});
         if(currentUser){
             res.sendStatus(409);
             return; 
         }
-        await db.collection("participants").insertOne({name: user.name, lastStatus: Date.now()});
-        await db.collection("messages").insertOne({from: user.name, to: 'Todos', text: 'entra na sala...', type: 'status', time: dayjs.format('HH:MM:SS')});
+        await db.collection("participants").insertOne({name: participant.name, lastStatus: Date.now()});
+        await db.collection("messages").insertOne({
+            from: participant.name,
+            to: 'Todos',
+            text: 'entra na sala...',
+            type: 'status',
+            time: dayjs().format('HH:mm:ss')
+          });
         res.sendStatus(201);
     } catch (error) {
         console.log("Erro ao validar participante!");
@@ -83,9 +89,8 @@ app.get("/messages", async (req,res)=>{
     }
 });
 
-app.post("/messages",async (req,res)=>{
+app.post("/messages", async (req,res)=>{
     const message = req.body;
-    const {user} = req.headers;
     const messageSchema = joi.object({
         to: joi.string().required(),
         text: joi.string().required(),
@@ -96,14 +101,21 @@ app.post("/messages",async (req,res)=>{
         res.sendStatus(422);
         return;
     }
-
+    const {user} = req.headers;
     try {
-        const currentUser= await db.collection("participants").findOne({name:user});
+        const currentUser= await db.collection("participants").findOne({ name:user });
         if(!currentUser){
             res.sendStatus(422);
             return;
         }
-        await db.collection("messages").insertOne({from: user, to: message.to, text: message.text, type: message.type, time: dayjs.format('HH:MM:SS')});
+        const { to, text, type } = message;
+        await db.collection("messages").insertOne({
+        to,
+        text,
+        type,
+        from: user,
+        time: dayjs().format('HH:mm:ss')
+        });
         res.sendStatus(201);
 
     } catch (error) {
@@ -111,6 +123,44 @@ app.post("/messages",async (req,res)=>{
     }
 });
 
+app.post("/status", async (req,res)=>{
+    const {user} = req.headers;
+
+    try {
+        const participant = await db.collection("participants").find({name:user});
+        if(!participant){
+            res.sendStatus(404);
+            return;
+        }
+        await db.collection("participants").updateOne({ name: user }, { $set: { lastStatus: Date.now() } });
+        res.sendStatus(200);
+    } catch (error) {
+        console.log("Erro no status!");
+    }
+});
+
+setInterval ( async ()=>{
+    const tenSecondsAgo = Date.now() - 10000;
+
+    try {
+        const lstInactives = await db.collection("participants").find({ lastStatus: { $lte: tenSecondsAgo } }).toArray();
+        if(lstInactives.length>0){
+           const returnToInactive = lstInactives.map (participant=>{
+                return {
+                    from: participant.name,
+                    to: 'Todos',
+                    text: 'sai da sala...',
+                    type: 'status',
+                    time: dayjs().format("HH:mm:ss")
+                }
+            });
+            await db.collection("messages").insertMany(returnToInactive);
+            await db.collection("participants").deleteMany({ lastStatus: { $lte: tenSecondsAgo } });
+        }
+    } catch (error) {
+        
+    }
+},15000);
 
 
 
